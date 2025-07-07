@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BehaviorSubject } from 'rxjs';
 import OpenAI from 'openai';
+import { isEqual } from 'lodash';
 
 const baseDir = `${process.cwd()}/audio`;
 
@@ -38,29 +39,23 @@ export class Session {
       summaring: false,
     };
   }
-  addMessage(messages: { role: string; content: string; startTime: number }[]) {
+  updateMessage(messages: { role: string; content: string; startTime: number }[]) {
     const newMessages = messages.filter((m) => m.definite);
+    console.log('updateMessage1111-----', this.data.messages, newMessages);
     if (newMessages.length === 0) {
       return;
     }
+    console.log('updateMessage2222-----', this.data.messages, newMessages);
+    if (isEqual(this.data.messages, newMessages)) {
+      return;
+    }
+    console.log('updateMessage3333-----', this.data.messages, newMessages);
     this.data.messages = newMessages;
     for (const subject of this.subs.values()) {
       subject.next({
         type: 'message',
         sessionId: this.data.sessionId,
         data: newMessages,
-      });
-    }
-  }
-  addSystemAction(
-    actions: { role: string; content: any; startTime: number }[],
-  ) {
-    this.data.systemActions.push(...actions);
-    for (const subject of this.subs.values()) {
-      subject.next({
-        type: 'action',
-        sessionId: this.data.sessionId,
-        data: this.data.systemActions,
       });
     }
   }
@@ -108,17 +103,11 @@ export class EventsService {
         console.log('receive data-----', data);
         if ((data ?? []).length > 0) {
           const session = this.sessionDataMap.get(sessionId);
+          console.log('session-----', session);
           if (!session) {
             return;
           }
-          session?.addMessage(data ?? []);
-          try {
-            this.summary(sessionId);
-          } catch (error) {
-            console.error('summary error-----', error);
-          } finally {
-            session.data.summaring = false;
-          }
+          session?.updateMessage(data ?? []);
         }
       });
       // 第一帧不要
@@ -144,58 +133,6 @@ export class EventsService {
   }
   bufferToFile(buffer: Buffer, filename: string) {
     writeOrAppendFile(path.join(baseDir, filename), buffer);
-  }
-  async summary(sessionId: string) {
-    const session = this.sessionDataMap.get(sessionId);
-    const systemActions = session.data.systemActions
-      .map((m) => m.content)
-      .filter((s) => !!s);
-    const prompt = `
-# 【前序通话总结】：
-${systemActions.length ? systemActions.join('\n') : '无'}
-----------
-# 【最近几条通话消息内容】：
-${session.data.messages.map((m) => m.content).join('\n')}
-        `;
-    console.log(
-      'prompt-----',
-      prompt,
-      this.configService.get('openai_api_key'),
-      this.configService.get('openai_base_url'),
-    );
-
-    const client = new OpenAI({
-      apiKey: this.configService.get('openai_api_key'),
-      baseURL: this.configService.get('openai_base_url'),
-    });
-    const response = await client.chat.completions.create({
-      model: 'claude-3-5-sonnet',
-      messages: [
-        {
-          role: 'system',
-          content: `# 你是一个优秀的通话录音记录员，请根据用户提供的【前序通话总结】和【最近几条通话消息内容】，生成通话总结
-            # 总结要求：
-            1. 如果你认为没有必要新增总结，请返回"否"，不要返回任何其他内容
-            2. 如果你认为需要增加新的总结，请以每行一句话总结的格式输出，不要加序号,不要包含【前序通话总结】`,
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    });
-    console.log('response-----', response.choices[0].message?.content);
-    const result = response.choices[0].message?.content;
-    if (!result || result.length < 5) {
-      return;
-    }
-    session?.addSystemAction([
-      {
-        role: 'system',
-        content: result,
-        startTime: Date.now(),
-      },
-    ]);
   }
 }
 
