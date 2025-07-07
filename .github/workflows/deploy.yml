@@ -1,134 +1,73 @@
-name: CI/CD Pipeline
-
+name: domi-server deploy
+# 触发workflow的条件
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
+env:
+    SERVER_PRIVATE_KEY: ${{ secrets.GCD_PRIVATE_KEY }} # 服务器私钥
+    SERVER_HOST: ${{ secrets.GCD_HOST }} # 服务器IP地址
+    USER_NAME: ${{ secrets.GCD_USER }} # 服务器用户名
+    cache-name: domi-server
+    ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
+    STT_AK: ${{ secrets.STT_AK }}
+    STT_APPID: ${{ secrets.STT_APPID }}
+    STT_CLUSTER: ${{ secrets.STT_CLUSTER }}
+    DEPLOY_DIR: ~/code
+
+# jobs表示执行的一项或多项任务
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-      
-    - name: 设置Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        
-    - name: 安装pnpm
-      uses: pnpm/action-setup@v2
-      with:
-        version: 8
-        
-    - name: 安装依赖
-      run: pnpm install
-      
-    - name: 代码格式检查
-      run: pnpm run lint
-      
-    - name: 运行测试
-      run: pnpm run test
-      
-    - name: 运行端到端测试
-      run: pnpm run test:e2e
-
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-      
-    - name: 设置Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        
-    - name: 安装pnpm
-      uses: pnpm/action-setup@v2
-      with:
-        version: 8
-        
-    - name: 安装依赖
-      run: pnpm install
-      
-    - name: 构建项目
-      run: pnpm run build
-      
-    - name: 上传构建产物
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-files
-        path: |
-          dist/
-          node_modules/
-          package.json
-          pnpm-lock.yaml
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-      
-    - name: 下载构建产物
-      uses: actions/download-artifact@v4
-      with:
-        name: build-files
-        
-    - name: 部署到服务器
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.SSH_KEY }}
-        port: ${{ secrets.PORT }}
-        script: |
-          # 停止现有服务
-          pm2 stop ttc-be || true
-          
-          # 备份当前版本
-          if [ -d "/var/www/ttc-be" ]; then
-            mv /var/www/ttc-be /var/www/ttc-be-backup-$(date +%Y%m%d_%H%M%S)
-          fi
-          
-          # 创建新的部署目录
-          mkdir -p /var/www/ttc-be
-          cd /var/www/ttc-be
-          
-          # 拉取最新代码
-          git clone https://github.com/${{ github.repository }}.git .
-          
-          # 设置Node.js环境
-          export NVM_DIR="$HOME/.nvm"
-          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-          nvm use 18
-          
-          # 安装pnpm
-          npm install -g pnpm
-          
-          # 安装依赖
-          pnpm install --prod
-          
-          # 构建项目
-          pnpm run build
-          
-          # 设置环境变量
-          cp .env.example .env || true
-          
-          # 启动服务
-          pm2 start dist/main.js --name ttc-be
-          
-          # 保存PM2配置
-          pm2 save
-          
-          # 清理旧的备份文件（保留最近5个）
-          find /var/www -name "ttc-be-backup-*" -type d | sort -r | tail -n +6 | xargs rm -rf || true 
+    build: # 任务的job_id，具体名称自定义，这里build代表打包
+        runs-on: ubuntu-latest # runs-on字段指定运行所需要的虚拟机环境。注意：这个是必填字段
+        steps:
+            - uses: actions/checkout@main
+            
+            - name: Remove node_modules
+              run: rm -rf node_modules
+            
+            - name: Get short SHA
+              id: short-sha
+              run: echo "short_sha=${GITHUB_SHA:0:8}" >> $GITHUB_OUTPUT
+            
+            - name: Create .env file
+              run: |
+                echo "APP_VERSION=${{ steps.short-sha.outputs.short_sha }}" > .env
+                echo "ASSEMBLYAI_API_KEY=${{ env.ASSEMBLYAI_API_KEY }}" >> .env
+                echo "STT_AK=${{ env.STT_AK }}" >> .env
+                echo "STT_APPID=${{ env.STT_APPID }}" >> .env
+                echo "STT_CLUSTER=${{ env.STT_CLUSTER }}" >> .env
+            
+            # 上传打仓库
+            - name: Deploy
+              uses: easingthemes/ssh-deploy@main
+              env:
+                  SSH_PRIVATE_KEY: ${{ env.SERVER_PRIVATE_KEY }}
+                  ARGS: '-avz --delete'
+                  REMOTE_HOST: ${{ env.SERVER_HOST }}
+                  REMOTE_USER: ${{ env.USER_NAME }}
+                  EXCLUDE: .git
+                  SCRIPT_BEFORE: cd ${{ env.DEPLOY_DIR }} && mkdir -p ${{ env.DEPLOY_DIR }}/domi-server-${{ steps.short-sha.outputs.short_sha }} && mkdir -p ${{ env.DEPLOY_DIR }}/logs
+                  TARGET: ${{ env.DEPLOY_DIR }}/domi-server-${{ steps.short-sha.outputs.short_sha }} # 服务器目标路径
+                  SCRIPT_AFTER: |
+                    cd ${{ env.DEPLOY_DIR }}/domi-server-${{ steps.short-sha.outputs.short_sha }}
+                    pnpm i
+                    pnpm build
+                    cd ${{ env.DEPLOY_DIR }}
+                    rm -f ${{ env.DEPLOY_DIR }}/domi-server-current
+                    ln -s ${{ env.DEPLOY_DIR }}/domi-server-${{ steps.short-sha.outputs.short_sha }} ${{ env.DEPLOY_DIR }}/domi-server-current
+                    # 加载环境变量到当前shell
+                    set -a && source ${{ env.DEPLOY_DIR }}/domi-server-${{ steps.short-sha.outputs.short_sha }}/.env && set +a
+                    export DEPLOY_DIR=${{ env.DEPLOY_DIR }}
+                    pm2 restart ${{ env.DEPLOY_DIR }}/domi-server-${{ steps.short-sha.outputs.short_sha }}/ecosystem.config.js --env production
+                    echo "$(date '+%Y-%m-%d %H:%M:%S'),${{ steps.short-sha.outputs.short_sha }},domi-server-${{ steps.short-sha.outputs.short_sha }},SUCCESS" >> ${{ env.DEPLOY_DIR }}/deploy_log.csv
+                    if [ -f ${{ env.DEPLOY_DIR }}/deploy_log.csv ]; then
+                      total_lines=$(wc -l < ${{ env.DEPLOY_DIR }}/deploy_log.csv)
+                      if [ $total_lines -gt 3 ]; then
+                        lines_to_remove=$((total_lines - 3))
+                        head -n $lines_to_remove ${{ env.DEPLOY_DIR }}/deploy_log.csv | cut -d',' -f3 | while read old_version; do
+                          if [ -d "${{ env.DEPLOY_DIR }}/$old_version" ] && [ "$old_version" != "domi-server-${{ steps.short-sha.outputs.short_sha }}" ]; then
+                            rm -rf "${{ env.DEPLOY_DIR }}/$old_version"
+                            echo "Removed old version: $old_version"
+                          fi
+                        done
+                      fi
+                    fi

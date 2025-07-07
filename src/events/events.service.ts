@@ -88,9 +88,9 @@ export class EventsService {
       return;
     }
     if (!this.sttClient.has(sessionId)) {
-      const clusterId = this.configService.get<string>('stt_clusterId') ?? '';
-      const token = this.configService.get<string>('stt_ak') ?? '';
-      const appid = this.configService.get<string>('stt_appId') ?? '';
+      const clusterId = this.configService.get<string>('STT_CLUSTER') ?? '';
+      const token = this.configService.get<string>('STT_AK') ?? '';
+      const appid = this.configService.get<string>('STT_APPID') ?? '';
       const sttClient = new AsrWsClient(clusterId, {
         token,
         appid: appid,

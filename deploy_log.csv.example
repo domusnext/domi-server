@@ -1,0 +1,10 @@
+# 部署日志格式说明
+# 格式：日期时间,commit_hash,目录名,状态
+# 每次部署成功后会自动追加一行记录
+# 系统会根据此日志保留最新的3个版本，删除更老的版本
+
+# 示例数据：
+2024-01-15 10:30:00,a1b2c3d4,domi-server-a1b2c3d4,SUCCESS
+2024-01-15 14:20:00,e5f6g7h8,domi-server-e5f6g7h8,SUCCESS
+2024-01-16 09:15:00,i9j0k1l2,domi-server-i9j0k1l2,SUCCESS
+2024-01-16 16:45:00,m3n4o5p6,domi-server-m3n4o5p6,SUCCESS 

@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import { AsrWsClient, convertAudioBuffer } from './vol_stt';
+import { AssemblyAIStt } from './assemblyai_stt';
 
 describe('transform audio', () => {
   it('should transform audio', async () => {
@@ -19,17 +20,18 @@ describe('transform audio', () => {
       './audio/test.wav',
     );
     console.log('audio----', audio);
-    const client = new AsrWsClient('volcengine_streaming_common', {
-      token: 'xxxxx',
-      appid: 'xxxxxx',
-      cluster: 'volcengine_streaming_common',
-      format: 'wav'    });
+    const client = new AssemblyAIStt();
+    await client.startTranscription();
     await new Promise((resolve, reject) => {
       setTimeout(() => resolve(null), 1000);
     });
-    client.execute(audio);
-    await new Promise((resolve, reject) => {
-      setTimeout(() => resolve(null), 5000);
+
+    client.onReceive(audio);
+    client.observer.subscribe((data) => {
+      console.log('data-----', typeof data, data.length);
     });
-  }, 10000);
+    await new Promise((resolve, reject) => {
+      setTimeout(() => resolve(null),800000);
+    });
+  }, 800000);
 });
